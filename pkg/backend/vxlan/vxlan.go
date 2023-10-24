@@ -190,8 +190,6 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, wg *sync.WaitGroup,
 		} else {
 			log.Infof("Setup flannel.1 mac address to %s successfully when flannel restart", macStr)
 		}
-	} else {
-		hwAddr = dev.MACAddr()
 	}
 
 	subnetAttrs, err := newSubnetAttrs(be.extIface.ExtAddr, be.extIface.ExtV6Addr, uint16(cfg.VNI), dev, v6Dev)
