@@ -63,7 +63,6 @@ import (
 	"github.com/flannel-io/flannel/pkg/ip"
 	"github.com/flannel-io/flannel/pkg/lease"
 	"github.com/flannel-io/flannel/pkg/subnet"
-	"github.com/vishvananda/netlink"
 	"golang.org/x/net/context"
 	log "k8s.io/klog/v2"
 )
@@ -143,6 +142,19 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, wg *sync.WaitGroup,
 
 	var dev, v6Dev *vxlanDevice
 	var err error
+
+	// edge k8s: when flannel is restarted, it will get mac addr from node annotations to set flannel.1 mac address
+	// in order to keep mac address for flannel.1
+	var hwAddr net.HardwareAddr
+	macStr, _ := ctx.Value("VtepMAC").(string)
+	if macStr != "" {
+		hwAddr, err = net.ParseMAC(macStr)
+		if err != nil {
+			log.Errorf("Failed to parse mac addr(%s): %v", macStr, err)
+		}
+		log.Infof("Setup flannel.1 mac address to %s when flannel restarts", macStr)
+	}
+
 	if config.EnableIPv4 {
 		devAttrs := vxlanDeviceAttrs{
 			vni:       uint32(cfg.VNI),
@@ -153,6 +165,7 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, wg *sync.WaitGroup,
 			vtepPort:  cfg.Port,
 			gbp:       cfg.GBP,
 			learning:  cfg.Learning,
+			hwAddr:    hwAddr,
 		}
 
 		dev, err = newVXLANDevice(&devAttrs)
@@ -171,25 +184,13 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, wg *sync.WaitGroup,
 			vtepPort:  cfg.Port,
 			gbp:       cfg.GBP,
 			learning:  cfg.Learning,
+			hwAddr:    nil,
 		}
 		v6Dev, err = newVXLANDevice(&v6DevAttrs)
 		if err != nil {
 			return nil, err
 		}
 		v6Dev.directRouting = cfg.DirectRouting
-	}
-
-	// edge k8s: when flannel is restarted, it will get mac addr from node annotations to set flannel.1 mac address
-	// in order to keep mac address for flannel.1
-	var hwAddr net.HardwareAddr
-	macStr, _ := ctx.Value("VtepMAC").(string)
-	if macStr != "" {
-		hwAddr, _ = net.ParseMAC(macStr)
-		if err := netlink.LinkSetHardwareAddr(dev.link, hwAddr); err != nil {
-			log.Errorf("Failed to ip link set mac addr(%s): %v", macStr, err)
-		} else {
-			log.Infof("Setup flannel.1 mac address to %s successfully when flannel restart", macStr)
-		}
 	}
 
 	subnetAttrs, err := newSubnetAttrs(be.extIface.ExtAddr, be.extIface.ExtV6Addr, uint16(cfg.VNI), dev, v6Dev)
